@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.voice-input.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>%%PROJECT_ROOT%%/.venv/bin/python</string>
+        <string>ws_server.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/%%PROJECT_ROOT%%</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/%%USERNAME%%/Library/Logs/voice-input-server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/%%USERNAME%%/Library/Logs/voice-input-server.log</string>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+</dict>
+</plist>
