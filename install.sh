@@ -17,6 +17,19 @@ else
   exit 1
 fi
 
+# --- 0. .env ファイルの準備 ---
+if [ ! -f ".env" ]; then
+  echo "  📝 .env not found. Creating from example..."
+  if [ -f ".env.example" ]; then
+    cp .env.example .env
+  else
+    # example もない場合のフォールバック（直接書き込み）
+    echo "VOICE_INPUT_HOTKEY=f13" >.env
+    echo "VOICE_INPUT_SERVER=ws://localhost:8991" >>.env
+  fi
+  echo "  ✅ Created .env with default values."
+fi
+
 # --- 2. LaunchAgents の置換とロード ---
 install_plist() {
   local template=$1

@@ -9,6 +9,8 @@
     <array>
         <string>/opt/homebrew/bin/uv</string>
         <string>run</string>
+        <string>--env-file</string>
+        <string>.env</string>
         <string>src/client/mac_client.py</string>
     </array>
 
@@ -19,8 +21,6 @@
     <dict>
         <key>VOICE_INPUT_SERVER</key>
         <string>ws://localhost:8991</string>
-        <key>VOICE_INPUT_HOTKEY</key>
-        <string>f13</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
