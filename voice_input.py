@@ -87,6 +87,7 @@ def transcribe(
         path_or_hf_repo=WHISPER_MODEL,
         language=language,
         word_timestamps=False,
+        initial_prompt="こんにちは。今日はいい天気ですね。このように、句読点をつけて適切に改行してください。",
     )
 
     transcribe_time = time.time() - t0
