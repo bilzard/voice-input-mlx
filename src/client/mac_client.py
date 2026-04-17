@@ -270,18 +270,18 @@ class VoiceInputClient:
 
     def start(self):
         """メインループを開始."""
-        print(f"voice-input client (Pure Whisper Mode)")
+        print("voice-input client")
         print(f"  Server:   {self.server_url}")
         print(f"  Language: {self.language}")
         print(f"  Paste:    {'clipboard+Cmd+V' if self.paste else 'clipboard only'}")
         print(f"")
         print(
-            f"  [{HOTKEY_NAME}を1回押す]          → 録音開始/終了 → ペーストのみ（デフォルト）"
+            f"  [{HOTKEY_NAME} once]              → Start/Stop Recording → Paste only (Default)"
         )
         print(
-            f"  [{HOTKEY_NAME}を押し、終了時にCtrl] → 録音開始/終了 → ペースト + 送信"
+            f"  [{HOTKEY_NAME} then Ctrl at end]  → Start/Stop Recording → Paste + Send"
         )
-        print(f"  [Ctrl+C] → 終了")
+        print(f"  [Ctrl+C] → Quit")
         print()
 
         self._start_overlay()
