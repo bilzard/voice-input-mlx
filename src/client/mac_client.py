@@ -548,7 +548,7 @@ class VoiceInputClient:
             line = f"{stage}:{custom_msg}\n" if custom_msg else f"{stage}\n"
             self._overlay_proc.stdin.write(line.encode("utf-8"))
             self._overlay_proc.stdin.flush()
-        except (BrokenPipeError, OSError):
+        except BrokenPipeError, OSError:
             self._overlay_proc = None
 
     def _stop_overlay(self):
@@ -577,17 +577,17 @@ def main():
         default=default_server,
         help=f"WebSocket server URL (default: {default_server})",
     )
-    parser.add_argument("-l", "--language", default="ja", help="Language (default: ja)")
     parser.add_argument(
         "--no-paste",
         action="store_true",
         help="Clipboard only, don't auto-paste with Cmd+V",
     )
     args = parser.parse_args()
+    language = os.environ.get("DEFAULT_LANGUAGE", "ja")
 
     client = VoiceInputClient(
         server_url=args.server,
-        language=args.language,
+        language=language,
         paste=not args.no_paste,
     )
     client.start()
