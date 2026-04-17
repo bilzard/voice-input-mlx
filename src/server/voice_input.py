@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""voice-input: MLX Whisper文字起こし専用パイプライン.
+"""voice-input: a faster audio-to-text pipeline with MLX Whisper.
 
-mlx-whisper (Apple Silicon最適化) を使用し、
-音声ファイルからテキストを高速生成する。
-
-使い方:
-  voice-input audio.mp3                    # 文字起こし
-  voice-input serve                        # HTTPサーバーモード
-  voice-input serve --port 8990            # ポート指定
+Usage:
+  voice-input audio.mp3                    # process audio file
+  voice-input serve                        # start HTTP server
+  voice-input serve --port 8990            # with port
 """
 
 import argparse
@@ -22,11 +19,8 @@ from pathlib import Path
 import mlx_whisper
 import numpy as np
 
-# MLX用にデフォルトモデル名を Hugging Face リポジトリ名に変更
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo")
 DEFAULT_LANGUAGE = os.environ.get("DEFAULT_LANGUAGE", "ja")
-
-# 無音判定の閾値 (dB)。この値以下のRMSレベルはWhisperに投げない。
 SILENCE_THRESHOLD_DB = float(os.environ.get("SILENCE_THRESHOLD_DB", "-40"))
 
 _is_whisper_loaded = False
@@ -37,7 +31,7 @@ INITIAL_PROMPT_MAP = dict(
 
 
 def audio_rms_db(wav_data: bytes) -> float:
-    """WAVバイナリデータのRMS音量をdBで返す."""
+    """return RMS volume of WAV binary audio in dB"""
     import io
     import wave
 
@@ -56,7 +50,7 @@ def audio_rms_db(wav_data: bytes) -> float:
 
 
 def _get_whisper_model():
-    """MLX Whisperモデルを事前にロードしてメモリに定着させる."""
+    """pre-load Whisper model"""
     global _is_whisper_loaded
     if not _is_whisper_loaded:
         import logging
@@ -64,8 +58,8 @@ def _get_whisper_model():
         log = logging.getLogger("voice_input.mlx")
         log.info(f"Warming up MLX Whisper model ({WHISPER_MODEL})...")
 
-        # 1秒分のダミー無音データ（16kHz float32）を作成して空回しする
-        # これにより、Metal上でモデルがコンパイル・ロードされる
+        # Generate dummy silent data of 1 sec (16kHz float32) to warmup.
+        # Weight is compiled and loaded on Metal device.
         dummy_audio = np.zeros(16000, dtype=np.float32)
         mlx_whisper.transcribe(
             dummy_audio, path_or_hf_repo=WHISPER_MODEL, word_timestamps=False
@@ -78,14 +72,12 @@ def _get_whisper_model():
 def transcribe(
     audio_path: str, language: str | None = None, vad_filter: bool = False
 ) -> dict:
-    """MLX Whisperで音声を文字起こしする."""
     t0 = time.time()
     _get_whisper_model()  # 初回ロード確認
     load_time = time.time() - t0
 
     t0 = time.time()
 
-    # mlx-whisper に推論を実行させる
     result = mlx_whisper.transcribe(
         audio_path,
         path_or_hf_repo=WHISPER_MODEL,
@@ -96,12 +88,12 @@ def transcribe(
 
     transcribe_time = time.time() - t0
 
-    # MLX は辞書で結果を返す
+    # handle MLX output
     raw_text = result.get("text", "").strip()
     detected_lang = result.get("language", language or DEFAULT_LANGUAGE)
     segments = result.get("segments", [])
 
-    # 簡易的なduration算出
+    # naive calculation of duration
     duration = segments[-1]["end"] if segments and "end" in segments[-1] else 0.0
 
     return {
@@ -121,7 +113,7 @@ def process_audio(
     output_format: str = "text",
     quiet: bool = False,
 ) -> dict:
-    """音声ファイルを文字起こしする完全パイプライン."""
+    """an entire pipeline of transcribing a audio file"""
     if not quiet:
         print(f"Transcribing: {audio_path}", file=sys.stderr)
 
@@ -228,7 +220,6 @@ class VoiceInputHandler(BaseHTTPRequestHandler):
 
 
 def serve(host: str, port: int):
-    """HTTPサーバーを起動."""
     server = HTTPServer((host, port), VoiceInputHandler)
     print(f"voice-input server listening on http://{host}:{port}", file=sys.stderr)
     print(f"  POST /transcribe  - Upload audio for transcription", file=sys.stderr)
@@ -240,14 +231,10 @@ def serve(host: str, port: int):
 
 
 # --- CLI ---
-
-
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "serve":
         if len(sys.argv) >= 3 and sys.argv[2] == "ws":
-            parser = argparse.ArgumentParser(
-                description="voice-input WebSocketサーバー"
-            )
+            parser = argparse.ArgumentParser(description="voice-input WebSocket Server")
             parser.add_argument("_cmd", metavar="serve")
             parser.add_argument("_mode", metavar="ws")
             parser.add_argument("--host", default="0.0.0.0", help="Bind address")

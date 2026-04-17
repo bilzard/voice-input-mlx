@@ -1,22 +1,4 @@
 #!/usr/bin/env python3
-"""voice-input Mac client: Push-to-Talk → WebSocket → キーボード入力.
-
-使い方:
-  1. サーバー側: voice-input serve ws
-  2. Mac側:     python3 mac_client.py --server ws://YOUR_SERVER_IP:8991
-
-操作:
-  F13(デフォルト)を1回押す → 録音開始/終了 → ペーストのみ
-  終了時にCtrlを押す       → ペースト + 送信(Enter)
-
-依存 (Mac側):
-  pip3 install sounddevice numpy websockets pynput pyperclip
-
-macOS設定:
-  システム設定 > プライバシーとセキュリティ > マイク → ターミナルを許可
-  システム設定 > プライバシーとセキュリティ > アクセシビリティ → ターミナルを許可
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -42,7 +24,6 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = "int16"
 
-# 環境変数 "VOICE_INPUT_HOTKEY" からキー名を取得。指定がなければ "f13" をデフォルトに。
 HOTKEY_NAME = os.environ.get("VOICE_INPUT_HOTKEY", "f13")
 
 try:
@@ -52,7 +33,7 @@ except AttributeError:
     HOTKEY = keyboard.Key.f13
     HOTKEY_NAME = "f13"
 
-# --- ステータスオーバーレイ（フローティングHUD） ---
+# Status Overlay -- floating HUD
 OVERLAY_SCRIPT = r"""
 import sys, threading, queue, time
 
@@ -77,7 +58,7 @@ try:
         NSView, NSBezierPath, NSTextAlignmentCenter,
         NSMutableAttributedString, NSAttributedString,
         NSForegroundColorAttributeName, NSFontAttributeName,
-        NSMutableParagraphStyle, NSParagraphStyleAttributeName # ★ 追加：段落スタイル
+        NSMutableParagraphStyle, NSParagraphStyleAttributeName
     )
     from Foundation import NSObject
     HAS_APPKIT = True
@@ -129,7 +110,6 @@ class _Poller(NSObject):
             attr_str = NSMutableAttributedString.alloc().init()
             current_font = _hud_label.font()
 
-            # ★ 追加：文字列自身に「中央揃え」のスタイルを強制する
             p_style = NSMutableParagraphStyle.alloc().init()
             p_style.setAlignment_(NSTextAlignmentCenter)
 
@@ -139,7 +119,7 @@ class _Poller(NSObject):
                 attrs = {
                     NSFontAttributeName: current_font,
                     NSForegroundColorAttributeName: color,
-                    NSParagraphStyleAttributeName: p_style  # ★ 属性として中央揃えを付与
+                    NSParagraphStyleAttributeName: p_style
                 }
                 part = NSAttributedString.alloc().initWithString_attributes_(text, attrs)
                 attr_str.appendAttributedString_(part)
@@ -228,7 +208,7 @@ def main():
     _hud_label.setBezeled_(False)
     _hud_label.setDrawsBackground_(False)
     _hud_label.setTextColor_(NSColor.whiteColor())
-    _hud_label.setAlignment_(NSTextAlignmentCenter) # 通常テキスト用の中央揃え
+    _hud_label.setAlignment_(NSTextAlignmentCenter)
     _hud_label.setFont_(NSFont.monospacedSystemFontOfSize_weight_(14, 0))
 
     _hud_bg.addSubview_(_hud_label)
@@ -305,7 +285,7 @@ class VoiceInputClient:
         self.loop.run_until_complete(self._maintain_connection())
 
     async def _maintain_connection(self):
-        """WebSocket接続を維持."""
+        """maintain WebSocket connection"""
         while True:
             try:
                 async with websockets.connect(
@@ -339,7 +319,6 @@ class VoiceInputClient:
                 await asyncio.sleep(3)
 
     def _handle_server_message(self, data: dict):
-        """サーバーからの応答を処理."""
         msg_type = data.get("type", "")
 
         if msg_type == "status":
@@ -377,7 +356,7 @@ class VoiceInputClient:
             self._update_overlay("error", f"\u2717 {data.get('message', 'Error')[:40]}")
 
     def _output_text(self, text: str, send_enter: bool = False):
-        """テキストをクリップボード経由でペースト."""
+        """copy&paste the result text via clipboard"""
         try:
             proc = subprocess.Popen(
                 ["pbcopy"],
@@ -405,7 +384,6 @@ class VoiceInputClient:
                 print(f"  [clipboard unavailable] {text}")
 
     def _on_key_press(self, key):
-        """キー押下時."""
         if key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
             self._ctrl_pressed = True
 
@@ -421,7 +399,6 @@ class VoiceInputClient:
                 self._stop_recording()
 
     def _on_key_release(self, key):
-        """キー離し時."""
         if key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
             self._ctrl_pressed = False
 
@@ -429,7 +406,6 @@ class VoiceInputClient:
             self._hotkey_down = False
 
     def _start_recording(self):
-        """録音開始."""
         if not self._connected:
             print("  ✗ Not connected to server")
             return
@@ -455,7 +431,6 @@ class VoiceInputClient:
         self.stream.start()
 
     def _stop_recording(self):
-        """録音停止 → 最終音声を一括送信."""
         if not self.recording:
             return
 
@@ -513,7 +488,7 @@ class VoiceInputClient:
 
     @staticmethod
     def _encode_wav(audio: np.ndarray) -> bytes:
-        """numpy配列をWAVバイト列にエンコード."""
+        """encode numpy array to WAV byte series"""
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(CHANNELS)
@@ -522,7 +497,7 @@ class VoiceInputClient:
             wf.writeframes(audio.tobytes())
         return buf.getvalue()
 
-    # --- ステータスオーバーレイ管理 ---
+    # Draw Status Overlay
 
     def _start_overlay(self):
         try:

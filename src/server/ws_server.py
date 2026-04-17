@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""voice-input WebSocket server (Pure Whisper Mode).
+"""voice-input WebSocket server.
 
-Mac等のクライアントから音声データを受信し、
-MLX Whisperによる文字起こし結果のみを高速に返却する。
+receiving an audio data from the client, returns transcribed text output of MLX Whisper.
 """
 
 import asyncio
@@ -13,7 +12,6 @@ import time
 from pathlib import Path
 
 import websockets
-
 from voice_input import SILENCE_THRESHOLD_DB, audio_rms_db, transcribe
 
 logging.basicConfig(
@@ -23,13 +21,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("ws_server")
 
-# クライアント別設定
 client_configs: dict[str, dict] = {}
 
 
 class StreamState:
-    """バッチ処理モードのクライアント状態."""
-
     __slots__ = ("active", "latest_audio")
 
     def __init__(self):
@@ -81,12 +76,10 @@ async def handle_client(websocket):
 
             elif isinstance(message, bytes):
                 if state.active:
-                    # 音声データを受信して保存するだけ
                     state.latest_audio = message
                     size_kb = len(message) / 1024
                     log.info(f"Received audio chunk: {size_kb:.1f}KB")
                 else:
-                    # レガシーモード（一括送信）
                     await handle_audio(websocket, client_id, message)
 
     except websockets.exceptions.ConnectionClosed:
@@ -97,7 +90,6 @@ async def handle_client(websocket):
 
 
 async def handle_stream_start(websocket, client_id: str, data: dict):
-    """録音開始."""
     state = stream_states[client_id]
     state.active = True
     state.latest_audio = None
@@ -106,7 +98,6 @@ async def handle_stream_start(websocket, client_id: str, data: dict):
 
 
 async def handle_stream_end(websocket, client_id: str):
-    """録音終了: 蓄積した音声でWhisperを実行."""
     state = stream_states.get(client_id)
     if not state:
         return
@@ -151,12 +142,11 @@ async def handle_stream_end(websocket, client_id: str):
             finally:
                 Path(tmp_path).unlink(missing_ok=True)
 
-    # クライアントへ結果を即返却 (LLM整形を挟まない)
     await send_json(
         websocket,
         {
             "type": "result",
-            "text": raw_text,  # クライアント側でペーストされるテキスト
+            "text": raw_text,
             "raw_text": raw_text,
             "duration": duration,
             "transcribe_time": round(transcribe_time, 2),
@@ -165,7 +155,6 @@ async def handle_stream_end(websocket, client_id: str):
 
 
 async def handle_audio(websocket, client_id: str, audio_data: bytes):
-    """レガシー: バイナリ音声データを一括処理."""
     cfg = client_configs.get(client_id, {})
     size_kb = len(audio_data) / 1024
     log.info(f"[legacy] Audio from {client_id}: {size_kb:.1f}KB")
@@ -214,16 +203,14 @@ async def handle_audio(websocket, client_id: str, audio_data: bytes):
 
 
 async def send_json(websocket, data: dict):
-    """JSON応答を送信."""
     await websocket.send(json.dumps(data, ensure_ascii=False))
 
 
 async def main(host: str = "0.0.0.0", port: int = 8991):
-    """WebSocketサーバーを起動."""
     log.info(f"Starting Pure Whisper WebSocket server on ws://{host}:{port}")
     log.info(f"Silence threshold: {SILENCE_THRESHOLD_DB} dB")
 
-    # Whisperモデルを事前ロード
+    # pre-load Whisper model
     from voice_input import _get_whisper_model
 
     log.info("Pre-loading MLX Whisper model...")
