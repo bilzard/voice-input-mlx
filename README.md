@@ -74,6 +74,26 @@ MacBook単体で利用する場合などは、環境変数 `VOICE_INPUT_HOTKEY` 
   pkill -f mac_client.py
   ```
 
+その他のカスタマイズ可能な環境変数は`.env.example`を参照してください。
+
+### Benchmark
+
+技術用語を含む約20秒の音声入力における、推論速度と認識精度の比較データです。
+
+**Test Environment:**
+- **Hardware:** MacBook Air (M2, 2022) / 16GB RAM
+- **Sample Audio:** 以下の「正解文」を読み上げた音声
+
+| Model | Audio Length | Processing Time | RTF | Transcription Output (比較) |
+| :--- | :---: | :---: | :---: | :--- |
+| **(正解文)** | - | | | Whisper large-v3-turboは、従来のlarge-v2と比較してデコーダーの層数が大幅に削減されています。これにより、4bit量子化に頼らずとも、Apple Silicon上でリアルタイム係数0.1以下の驚異的な速度を実現可能です。 |
+| **`mlx-community/whisper-small-mlx`** | 22.0s | 1.7s  | **0.077** | ウィスパーラージV3ターボは、従来のラージV2と比較して、デコーダーの総数が大幅に削減されています。これにより**4ビット量しか**に頼らずとも、アップルシリコン上で**リアルタイムケース**0.1以下の**脅威的な**速度を実現可能です。 |
+| **`mlx-community/whisper-large-v3-turbo`** | 19.2s | 2.6s | **0.135** | **Wisper Large V3 Turbo**は、従来の**Large V2**と比較して、デコーダーの総数が大幅に削減されています。これにより、**4bit量子化**に頼らずとも、**Apple Silicon**上で**リアルタイム係数**0.1以下の**驚異的な**速度を実現可能です。 |
+
+> [!NOTE]
+> **RTF (Real Time Factor)**: 処理時間 ÷ 音声の長さ。数値が低いほど高速。
+> ※ RTF 0.1 前後（20秒の音声を2秒で処理）がストレスなく利用できる目安です。
+
 ## Credits & License
 
 ### Acknowledgements
