@@ -57,19 +57,27 @@ OVERLAY_SCRIPT = r"""
 import sys, threading, queue, time
 
 TEXTS = {
-    "recording":         "\U0001f3a4 Recording...",
-    "transcribing":      "\u270d\ufe0f Transcribing...",
+    "recording":         "\U0001f534 Recording",  # 🔴
+    "transcribing":      "\U0001f916 Processing", # 🤖
     "done":              "\u2705 Done!",
     "error":             "\u274c Error",
 }
 
-MAX_DISPLAY_CHARS = 200
+COLORS = {
+    "recording":    (0.25, 0.05, 0.05, 0.60),
+    "transcribing": (0.10, 0.10, 0.10, 0.60),
+    "done":         (0.05, 0.20, 0.08, 0.60),
+    "error":        (0.20, 0.05, 0.05, 0.60),
+}
 
 try:
     from AppKit import (
         NSApplication, NSWindow, NSTextField, NSColor, NSFont,
-        NSBackingStoreBuffered, NSEvent, NSScreen,
-        NSTimer, NSMakeRect, NSView, NSBezierPath,
+        NSBackingStoreBuffered, NSScreen, NSTimer, NSMakeRect,
+        NSView, NSBezierPath, NSTextAlignmentCenter,
+        NSMutableAttributedString, NSAttributedString,
+        NSForegroundColorAttributeName, NSFontAttributeName,
+        NSMutableParagraphStyle, NSParagraphStyleAttributeName # ★ 追加：段落スタイル
     )
     from Foundation import NSObject
     HAS_APPKIT = True
@@ -77,22 +85,6 @@ except ImportError:
     HAS_APPKIT = False
 
 if not HAS_APPKIT:
-    import subprocess
-    prev = None
-    for line in sys.stdin:
-        cmd = line.strip()
-        if not cmd or cmd == "HIDE":
-            continue
-        parts = cmd.split(":", 1)
-        stage = parts[0].strip()
-        msg = parts[1].strip() if len(parts) > 1 else TEXTS.get(stage, stage)
-        if stage != prev:
-            subprocess.Popen(
-                ["osascript", "-e",
-                 'display notification "' + msg + '" with title "voice-input"'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            prev = stage
     sys.exit(0)
 
 _cmd_queue = queue.Queue()
@@ -101,6 +93,8 @@ _hud_label = None
 _hud_bg = None
 _hud_visible = False
 _hide_at = 0
+_current_stage = "idle"
+_anim_frame = 0
 
 def _stdin_reader():
     for line in sys.stdin:
@@ -109,27 +103,61 @@ def _stdin_reader():
             _cmd_queue.put(cmd)
     _cmd_queue.put("EXIT")
 
-_bg_green = False
-
 class _RoundedBG(NSView):
     def drawRect_(self, rect):
-        if _bg_green:
-            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.08, 0.35, 0.12, 0.88).set()
-        else:
-            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.10, 0.10, 0.12, 0.88).set()
+        r, g, b, a = COLORS.get(_current_stage, COLORS["transcribing"])
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(r, g, b, a).set()
         NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-            self.bounds(), 12, 12,
+            self.bounds(), self.bounds().size.height / 2, self.bounds().size.height / 2,
         ).fill()
 
 class _Poller(NSObject):
     def tick_(self, timer):
-        global _hud_visible, _hide_at
+        global _hud_visible, _hide_at, _current_stage, _anim_frame
         now = time.time()
+
         if _hide_at and now >= _hide_at:
             _hide_at = 0
             if _hud_window:
                 _hud_window.orderOut_(None)
                 _hud_visible = False
+
+        if _current_stage in ("recording", "transcribing"):
+            _anim_frame = (_anim_frame + 1) % 32
+            dot_count = (int(_anim_frame / 8) % 4)
+
+            attr_str = NSMutableAttributedString.alloc().init()
+            current_font = _hud_label.font()
+
+            # ★ 追加：文字列自身に「中央揃え」のスタイルを強制する
+            p_style = NSMutableParagraphStyle.alloc().init()
+            p_style.setAlignment_(NSTextAlignmentCenter)
+
+            def add_part(text, is_visible):
+                if not text: return
+                color = NSColor.whiteColor() if is_visible else NSColor.clearColor()
+                attrs = {
+                    NSFontAttributeName: current_font,
+                    NSForegroundColorAttributeName: color,
+                    NSParagraphStyleAttributeName: p_style  # ★ 属性として中央揃えを付与
+                }
+                part = NSAttributedString.alloc().initWithString_attributes_(text, attrs)
+                attr_str.appendAttributedString_(part)
+
+            base_text = TEXTS.get(_current_stage, "")
+            center_text = f"  {base_text}  "
+
+            transparent_dots = 3 - dot_count
+            visible_dots = dot_count
+
+            add_part("." * transparent_dots, False)
+            add_part("." * visible_dots, True)
+            add_part(center_text, True)
+            add_part("." * visible_dots, True)
+            add_part("." * transparent_dots, False)
+
+            _hud_label.setAttributedStringValue_(attr_str)
+
         try:
             while True:
                 cmd = _cmd_queue.get_nowait()
@@ -137,38 +165,43 @@ class _Poller(NSObject):
                     NSApplication.sharedApplication().terminate_(None)
                     return
                 if cmd == "HIDE":
-                    if _hud_window:
-                        _hud_window.orderOut_(None)
-                        _hud_visible = False
+                    if _hud_window: _hud_window.orderOut_(None)
+                    _hud_visible = False
                     continue
+
                 parts = cmd.split(":", 1)
-                stage = parts[0].strip()
-                msg = parts[1].strip() if len(parts) > 1 else TEXTS.get(stage, stage)
+                _current_stage = parts[0].strip()
+                msg = parts[1].strip() if (len(parts) > 1 and parts[1].strip()) else TEXTS.get(_current_stage, _current_stage)
 
-                global _bg_green
-                _bg_green = False # 常にダークテーマ
-                if _hud_bg:
-                    _hud_bg.setNeedsDisplay_(True)
+                _hud_bg.setNeedsDisplay_(True)
 
-                _show_hud(msg)
-                if stage in ("done", "error"):
-                    _hide_at = now + 0.2
+                if _current_stage not in ("recording", "transcribing"):
+                    _show_hud(msg)
+
+                if _current_stage in ("recording", "transcribing") and not _hud_visible:
+                    _show_hud("")
+
+                if _current_stage in ("done", "error"):
+                    _hide_at = now + 1.2
         except queue.Empty:
             pass
 
 def _show_hud(text):
     global _hud_visible
-    if len(text) > MAX_DISPLAY_CHARS:
-        text = "\u2026 " + text[-MAX_DISPLAY_CHARS:]
     scr = NSScreen.mainScreen().frame()
     w = _hud_window.frame().size.width
-    h = _hud_window.frame().size.height
+
     x = scr.origin.x + (scr.size.width - w) / 2
-    y = scr.origin.y + 24
+    y = scr.origin.y + 60
     _hud_window.setFrameOrigin_((x, y))
-    _hud_label.setStringValue_(text)
+
+    if text:
+        _hud_label.setStringValue_(text)
+
     if not _hud_visible:
+        _hud_window.setAlphaValue_(0.0)
         _hud_window.orderFront_(None)
+        _hud_window.animator().setAlphaValue_(1.0)
         _hud_visible = True
 
 def main():
@@ -176,14 +209,10 @@ def main():
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(2)
 
-    scr = NSScreen.mainScreen().frame()
-    W = min(int(scr.size.width * 0.6), 900)
-    H = 64
-    x = scr.origin.x + (scr.size.width - W) / 2
-    y = scr.origin.y + 24
+    W, H = 260, 36
 
     _hud_window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(x, y, W, H), 0, NSBackingStoreBuffered, False,
+        NSMakeRect(0, 0, W, H), 0, NSBackingStoreBuffered, False,
     )
     _hud_window.setLevel_(25)
     _hud_window.setOpaque_(False)
@@ -194,15 +223,14 @@ def main():
     _hud_bg = _RoundedBG.alloc().initWithFrame_(NSMakeRect(0, 0, W, H))
     _hud_window.setContentView_(_hud_bg)
 
-    _hud_label = NSTextField.alloc().initWithFrame_(NSMakeRect(16, 8, W - 32, H - 16))
+    _hud_label = NSTextField.alloc().initWithFrame_(NSMakeRect(0, 8, W, 20))
     _hud_label.setEditable_(False)
     _hud_label.setBezeled_(False)
     _hud_label.setDrawsBackground_(False)
     _hud_label.setTextColor_(NSColor.whiteColor())
-    _hud_label.setFont_(NSFont.systemFontOfSize_(14))
-    _hud_label.setMaximumNumberOfLines_(3)
-    _hud_label.cell().setWraps_(True)
-    _hud_label.cell().setLineBreakMode_(0)
+    _hud_label.setAlignment_(NSTextAlignmentCenter) # 通常テキスト用の中央揃え
+    _hud_label.setFont_(NSFont.monospacedSystemFontOfSize_weight_(14, 0))
+
     _hud_bg.addSubview_(_hud_label)
 
     threading.Thread(target=_stdin_reader, daemon=True).start()
