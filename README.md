@@ -61,13 +61,18 @@ bash install.sh
 
 ### ホットキーのカスタマイズ
 デフォルトのホットキーは `F13` に設定されています。
-MacBook単体で利用する場合や、他のキーに割り当てたい場合は、環境変数 `VOICE_INPUT_HOTKEY` で変更できます。
+MacBook単体で利用する場合などは、環境変数 `VOICE_INPUT_HOTKEY` を書き換えることで任意のキーに変更可能です。
 
-**変更例（インストール前/実行時に設定）：**
-```bash
-# 例: 右コマンドキーに変更する場合
-export VOICE_INPUT_HOTKEY="cmd_r"
-```
+1. `.env` ファイル内の値を編集します。
+  ```bash
+  # 例: F10 キーに変更する場合
+  VOICE_INPUT_HOTKEY="f10"
+  ```
+2. 設定を反映させるため、サービスを再起動します。
+  ```bash
+  # install.sh を再実行するか、プロセスを kill すれば自動再起動されます
+  pkill -f mac_client.py
+  ```
 
 ## Credits & License
 
