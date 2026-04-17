@@ -30,6 +30,10 @@ DEFAULT_LANGUAGE = os.environ.get("DEFAULT_LANGUAGE", "ja")
 SILENCE_THRESHOLD_DB = float(os.environ.get("SILENCE_THRESHOLD_DB", "-40"))
 
 _is_whisper_loaded = False
+INITIAL_PROMPT_MAP = dict(
+    ja="こんにちは。本日は晴天ですね。句読点を適切に使い、自然な日本語で記述してください。また、AI、Apple Silicon、GitHubなどの用語を正しく処理してください。",
+    en="Hello. This is a clear recording with proper punctuation and capitalization. It may include technical terms like AI, Apple Silicon, and software development.",
+)
 
 
 def audio_rms_db(wav_data: bytes) -> float:
@@ -87,7 +91,7 @@ def transcribe(
         path_or_hf_repo=WHISPER_MODEL,
         language=language,
         word_timestamps=False,
-        initial_prompt="こんにちは。今日はいい天気ですね。このように、句読点をつけて適切に改行してください。",
+        initial_prompt=INITIAL_PROMPT_MAP.get(language, ""),
     )
 
     transcribe_time = time.time() - t0
