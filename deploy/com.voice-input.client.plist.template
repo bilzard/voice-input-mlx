@@ -3,19 +3,24 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.voice-input.server</string>
+    <string>com.voice-input.client</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>%%PROJECT_ROOT%%/.venv/bin/python</string>
-        <string>ws_server.py</string>
+        <string>/opt/homebrew/bin/uv</string>
+        <string>run</string>
+        <string>src/client/mac_client.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/%%PROJECT_ROOT%%</string>
+    <string>%%PROJECT_DIR%%</string>
 
     <key>EnvironmentVariables</key>
     <dict>
+        <key>VOICE_INPUT_SERVER</key>
+        <string>ws://localhost:8991</string>
+        <key>VOICE_INPUT_HOTKEY</key>
+        <string>f13</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
@@ -24,12 +29,15 @@
     <true/>
 
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/%%USERNAME%%/Library/Logs/voice-input-server.log</string>
+    <string>/Users/%%USER_NAME%%/Library/Logs/voice-input.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/%%USERNAME%%/Library/Logs/voice-input-server.log</string>
+    <string>/Users/%%USER_NAME%%/Library/Logs/voice-input.log</string>
 
     <key>ThrottleInterval</key>
     <integer>5</integer>

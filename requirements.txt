@@ -1,5 +1,0 @@
-faster-whisper>=1.1.0
-websockets>=13.0
-requests>=2.31.0
-sounddevice>=0.5.5
-mlx-whisper>=0.4.3
