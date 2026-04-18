@@ -111,26 +111,27 @@ async def handle_stream_end(websocket, client_id: str):
 
     if state.latest_audio:
         try:
-            # The server's job is only to "throw the binary"
-            # Volume detection (dB), VAD, and temporary files are all handled by voice_input
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
                 lambda: process_audio_bytes(state.latest_audio, cfg.get("language")),
             )
-
             raw_text = result.get("raw_text", "")
             duration = result.get("duration", 0)
             transcribe_time = result.get("transcribe_time", 0)
+            detected_lang = result.get("language", cfg.get("language"))
 
+            # ★ ここを元の詳細なフォーマットに戻す
             if raw_text:
-                log.info(f"Result: {len(raw_text)} chars ({duration:.1f}s audio)")
+                log.info(
+                    f"Transcribe: {duration:.1f}s audio → "
+                    f"{len(raw_text)} chars in {transcribe_time:.1f}s (lang={detected_lang})"
+                )
             else:
-                log.info("VAD filtered or Empty result.")
+                log.info("VAD: No speech detected (or empty result), skipped Whisper.")
 
         except Exception as e:
             log.error(f"Processing error in stream_end: {e}")
-
     await send_json(
         websocket,
         {
@@ -155,16 +156,20 @@ async def handle_audio_oneshot(websocket, client_id: str, audio_data: bytes):
         )
 
         raw_text = result.get("raw_text", "")
+        duration = result.get("duration", 0)
+        transcribe_time = result.get("transcribe_time", 0)
 
-        await send_json(
-            websocket,
-            {
-                "type": "result",
-                "text": raw_text,
-                "language": result.get("language", ""),
-                "duration": result.get("duration", 0),
-                "transcribe_time": round(result.get("transcribe_time", 0), 2),
-            },
+        # ★ ここも詳細フォーマットに戻す
+        if not raw_text:
+            log.info("[legacy] VAD: No speech detected.")
+            await send_json(
+                websocket, {"type": "result", "raw_text": "", "duration": 0}
+            )
+            return
+
+        log.info(
+            f"Transcribed: {duration:.1f}s → "
+            f"{len(raw_text)} chars in {transcribe_time:.1f}s"
         )
     except Exception as e:
         log.error(f"Processing error in oneshot: {e}")
