@@ -1,19 +1,12 @@
-#!/usr/bin/env python3
-"""voice-input WebSocket server.
-
-receiving an audio data from the client, returns transcribed text output of MLX Whisper.
-"""
-
 import asyncio
 import json
 import logging
-import tempfile
 import time
-from pathlib import Path
 
 import websockets
-from voice_input import SILENCE_THRESHOLD_DB, audio_rms_db, transcribe
+from voice_input import preload_models, process_audio_bytes
 
+# logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -21,10 +14,13 @@ logging.basicConfig(
 )
 log = logging.getLogger("ws_server")
 
+# streaming status
 client_configs: dict[str, dict] = {}
 
 
 class StreamState:
+    """manage streaming buffer"""
+
     __slots__ = ("active", "latest_audio")
 
     def __init__(self):
@@ -36,17 +32,22 @@ stream_states: dict[str, StreamState] = {}
 
 
 async def handle_client(websocket):
-    """WebSocketクライアントを処理."""
+    """
+    Manage all interactions with a WebSocket client.
+    The server's responsibility: only parsing and routing messages.
+    """
     addr = websocket.remote_address
     client_id = f"{addr[0]}:{addr[1]}"
     log.info(f"Client connected: {client_id}")
 
+    # Initial configuration
     client_configs[client_id] = {"language": "ja"}
     state = StreamState()
     stream_states[client_id] = state
 
     try:
         async for message in websocket:
+            # 1. Handle text messages (control commands)
             if isinstance(message, str):
                 try:
                     data = json.loads(message)
@@ -66,7 +67,10 @@ async def handle_client(websocket):
                     log.info(f"Config updated for {client_id}: {cfg}")
 
                 elif msg_type == "stream_start":
-                    await handle_stream_start(websocket, client_id, data)
+                    state.active = True
+                    state.latest_audio = None
+                    log.info(f"Stream started for {client_id}")
+                    await send_json(websocket, {"type": "stream_ack"})
 
                 elif msg_type == "stream_end":
                     await handle_stream_end(websocket, client_id)
@@ -74,165 +78,127 @@ async def handle_client(websocket):
                 elif msg_type == "ping":
                     await send_json(websocket, {"type": "pong", "time": time.time()})
 
+            # 2. Handle binary messages (audio data)
             elif isinstance(message, bytes):
                 if state.active:
+                    # Streaming mode: accumulate in buffer
                     state.latest_audio = message
-                    size_kb = len(message) / 1024
-                    log.info(f"Received audio chunk: {size_kb:.1f}KB")
                 else:
-                    await handle_audio(websocket, client_id, message)
+                    # Legacy mode: process single audio data immediately
+                    await handle_audio_oneshot(websocket, client_id, message)
 
     except websockets.exceptions.ConnectionClosed:
         log.info(f"Client disconnected: {client_id}")
     finally:
+        # Cleanup
         client_configs.pop(client_id, None)
         stream_states.pop(client_id, None)
 
 
-async def handle_stream_start(websocket, client_id: str, data: dict):
-    state = stream_states[client_id]
-    state.active = True
-    state.latest_audio = None
-    log.info(f"Stream started for {client_id}")
-    await send_json(websocket, {"type": "stream_ack"})
-
-
 async def handle_stream_end(websocket, client_id: str):
+    """Handle the end of a stream. Pass the accumulated audio to the processing layer."""
     state = stream_states.get(client_id)
-    if not state:
+    if not state or not state.active:
         return
 
     state.active = False
-    log.info(f"Stream end for {client_id}")
+    log.info(f"Stream end for {client_id}. Processing buffer...")
 
     cfg = client_configs.get(client_id, {})
     raw_text = ""
     transcribe_time = 0
     duration = 0
-    detected_lang = cfg.get("language", "ja")
 
     if state.latest_audio:
-        rms_db = audio_rms_db(state.latest_audio)
-        if rms_db < SILENCE_THRESHOLD_DB:
-            log.info(f"Audio silent ({rms_db:.1f} dB), skipping Whisper")
-        else:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                f.write(state.latest_audio)
-                tmp_path = f.name
-            try:
-                loop = asyncio.get_event_loop()
-                t0 = time.time()
+        try:
+            # The server's job is only to "throw the binary"
+            # Volume detection (dB), VAD, and temporary files are all handled by voice_input
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: process_audio_bytes(state.latest_audio, cfg.get("language")),
+            )
 
-                # VADなしの純粋なWhisper実行
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: transcribe(tmp_path, cfg.get("language"), vad_filter=False),
-                )
-                transcribe_time = time.time() - t0
-                raw_text = result["raw_text"]
-                duration = result.get("duration", 0)
-                detected_lang = result.get("language", detected_lang)
+            raw_text = result.get("raw_text", "")
+            duration = result.get("duration", 0)
+            transcribe_time = result.get("transcribe_time", 0)
 
-                log.info(
-                    f"Transcribe ({rms_db:.1f} dB): {duration:.1f}s audio → "
-                    f"{len(raw_text)} chars in {transcribe_time:.1f}s (lang={detected_lang})"
-                )
-            except Exception as e:
-                log.error(f"Transcribe error: {e}")
-            finally:
-                Path(tmp_path).unlink(missing_ok=True)
+            if raw_text:
+                log.info(f"Result: {len(raw_text)} chars ({duration:.1f}s audio)")
+            else:
+                log.info("VAD filtered or Empty result.")
+
+        except Exception as e:
+            log.error(f"Processing error in stream_end: {e}")
 
     await send_json(
         websocket,
         {
             "type": "result",
             "text": raw_text,
-            "raw_text": raw_text,
             "duration": duration,
             "transcribe_time": round(transcribe_time, 2),
         },
     )
 
 
-async def handle_audio(websocket, client_id: str, audio_data: bytes):
+async def handle_audio_oneshot(websocket, client_id: str, audio_data: bytes):
+    """Handle a single audio binary input immediately."""
     cfg = client_configs.get(client_id, {})
-    size_kb = len(audio_data) / 1024
-    log.info(f"[legacy] Audio from {client_id}: {size_kb:.1f}KB")
-
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        f.write(audio_data)
-        tmp_path = f.name
 
     try:
-        loop = asyncio.get_event_loop()
-        rms_db = audio_rms_db(audio_data)
-        if rms_db < SILENCE_THRESHOLD_DB:
-            log.info(f"[legacy] Audio silent ({rms_db:.1f} dB), skipping Whisper")
-            await send_json(websocket, {"type": "result", "text": "", "duration": 0})
-            return
-
         await send_json(websocket, {"type": "status", "stage": "transcribing"})
-        t0 = time.time()
-        result = await loop.run_in_executor(
-            None, lambda: transcribe(tmp_path, cfg.get("language"), vad_filter=False)
-        )
-        transcribe_time = time.time() - t0
-        raw_text = result["raw_text"]
 
-        log.info(
-            f"Transcribed ({rms_db:.1f} dB): {result.get('duration', 0):.1f}s → "
-            f"{len(raw_text)} chars in {transcribe_time:.1f}s"
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, lambda: process_audio_bytes(audio_data, cfg.get("language"))
         )
+
+        raw_text = result.get("raw_text", "")
 
         await send_json(
             websocket,
             {
                 "type": "result",
                 "text": raw_text,
-                "raw_text": raw_text,
                 "language": result.get("language", ""),
                 "duration": result.get("duration", 0),
-                "transcribe_time": round(transcribe_time, 2),
+                "transcribe_time": round(result.get("transcribe_time", 0), 2),
             },
         )
     except Exception as e:
-        log.error(f"Processing error: {e}")
+        log.error(f"Processing error in oneshot: {e}")
         await send_json(websocket, {"type": "error", "message": str(e)})
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
 
 
 async def send_json(websocket, data: dict):
+    """Helper: Send JSON"""
     await websocket.send(json.dumps(data, ensure_ascii=False))
 
 
 async def main(host: str = "0.0.0.0", port: int = 8991):
-    log.info(f"Starting Pure Whisper WebSocket server on ws://{host}:{port}")
-    log.info(f"Silence threshold: {SILENCE_THRESHOLD_DB} dB")
+    """Start the server and preload models"""
+    log.info(f"Starting WebSocket server on ws://{host}:{port}")
 
-    # pre-load Whisper model
-    from voice_input import _get_whisper_model
-
-    log.info("Pre-loading MLX Whisper model...")
+    # Load both VAD and Whisper at startup
+    log.info("Warming up AI models...")
     t0 = time.time()
-    _get_whisper_model()
-    log.info(f"Whisper model loaded in {time.time() - t0:.1f}s")
+    preload_models()
+    log.info(f"Models ready in {time.time() - t0:.1f}s")
 
     async with websockets.serve(
         handle_client,
         host,
         port,
         max_size=50 * 1024 * 1024,  # 50MB
-        ping_interval=30,
-        ping_timeout=10,
     ):
-        await asyncio.Future()
+        await asyncio.Future()  # Keep the server running
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Pure Whisper WebSocket server")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8991)
     args = parser.parse_args()
@@ -240,4 +206,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(args.host, args.port))
     except KeyboardInterrupt:
-        log.info("Shutdown")
+        log.info("Server stopped.")

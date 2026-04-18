@@ -18,6 +18,7 @@ from pathlib import Path
 
 import mlx_whisper
 import numpy as np
+import vad_engine
 
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo")
 DEFAULT_LANGUAGE = os.environ.get("DEFAULT_LANGUAGE", "ja")
@@ -28,6 +29,52 @@ INITIAL_PROMPT_MAP = dict(
     ja="こんにちは。本日は晴天ですね。句読点を適切に使い、自然な日本語で記述してください。また、AI、Apple Silicon、GitHubなどの用語を正しく処理してください。",
     en="Hello. This is a clear recording with proper punctuation and capitalization. It may include technical terms like AI, Apple Silicon, and software development.",
 )
+
+
+def preload_models():
+    """サーバー起動時に呼ばれる、すべてのモデルの事前ロード"""
+    global _is_whisper_loaded
+
+    # VADのロードを委譲
+    vad_engine.preload_vad_model()
+
+    # Whisperのロード
+    if not _is_whisper_loaded:
+        import logging
+
+        log = logging.getLogger("voice_input.mlx")
+        log.info("Loading MLX Whisper model...")
+        dummy = np.zeros(16000, dtype=np.float32)
+        mlx_whisper.transcribe(
+            dummy, path_or_hf_repo=WHISPER_MODEL, word_timestamps=False
+        )
+        _is_whisper_loaded = True
+        log.info("MLX Whisper warmup complete.")
+
+
+def process_audio_bytes(audio_data: bytes, language: str | None = None) -> dict:
+    """サーバーから呼ばれるエントリーポイント"""
+
+    # ★VAD判定を外部モジュールに委譲
+    if not vad_engine.has_speech(audio_data):
+        return {
+            "raw_text": "",
+            "language": language or DEFAULT_LANGUAGE,
+            "duration": 0.0,
+            "transcribe_time": 0.0,
+            "speed": 0.0,
+            "segments": [],
+        }
+
+    # 声があれば一時ファイルに書いて Whisper に流す
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        f.write(audio_data)
+        tmp_path = f.name
+
+    try:
+        return transcribe(tmp_path, language=language)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 def audio_rms_db(wav_data: bytes) -> float:
