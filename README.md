@@ -3,9 +3,15 @@
 ## What is this?
 
 A high-speed, fully local voice input tool exclusively for Mac, optimized for Apple Silicon (Metal).
+This project is a streamlined rebuild of [xuiltul/voice-input](https://github.com/xuiltul/voice-input), focusing on pure performance and minimal inference latency by utilizing `mlx-whisper`.
 
-> [!NOTE]
-> Based on [xuiltul/voice-input](https://github.com/xuiltul/voice-input), this project has been rebuilt to prioritize minimal inference latency and input immediacy. Features such as LLM-based text formatting and screen analysis were intentionally removed to focus on pure performance using `mlx-whisper`.
+## Demo Video
+
+🔊 **Please unmute the player to hear the narration.**
+
+<video src="https://github.com/user-attachments/assets/8bf99117-99e5-42ac-beb7-649566a07048" controls width="100%">
+  Your browser does not support the video tag.
+</video>
 
 ## Key Features
 
