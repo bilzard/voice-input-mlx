@@ -4,7 +4,7 @@ import logging
 import time
 
 import websockets
-from voice_input import preload_models, process_audio_bytes
+from transcriber import preload_models, process_audio_bytes
 
 # logging
 logging.basicConfig(
