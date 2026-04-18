@@ -9,5 +9,24 @@ dependencies = [
     "pynput>=1.8.1",
     "pyperclip>=1.11.0",
     "sounddevice>=0.5.5",
+    "torch>=2.11.0",
+    "torchaudio>=2.11.0",
     "websockets>=16.0",
 ]
+
+[tool.ruff]
+include = ["src/**/*.py", "tests/**/*.py"]
+src = ["src", "tests"]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+files = ["src", "tests"]
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
