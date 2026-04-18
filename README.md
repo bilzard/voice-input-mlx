@@ -119,7 +119,7 @@ Comparison of inference speed and accuracy using a ~20-second technical audio sa
 
 **Japanese**
 
-| Model | Audio Length | Processing Time | RTF | Transcription Output (比較) |
+| Model | Audio Length | Processing Time | RTF | Transcription Output (Accuracy Test) |
 | :--- | :---: | :---: | :---: | :--- |
 | **(Target Sentence)** | - | | | Whisper large-v3-turboは、従来のlarge-v2と比較してデコーダーの層数が大幅に削減されています。これにより、4bit量子化に頼らずとも、Apple Silicon上でリアルタイム係数0.1以下の驚異的な速度を実現可能です。 |
 | **`small-mlx`** | 22.0s | 1.7s  | **0.077** | ウィスパーラージV3ターボは、従来のラージV2と比較して、デコーダーの総数が大幅に削減されています。これにより**4ビット量しか**に頼らずとも、アップルシリコン上で**リアルタイムケース**0.1以下の**脅威的な**速度を実現可能です。 |
