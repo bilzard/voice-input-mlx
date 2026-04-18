@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""voice-input: a faster audio-to-text pipeline with MLX Whisper.
+"""voice-input: a faster audio-to-text pipeline with MLX Whisper and Silero VAD.
 
 Usage:
   voice-input audio.mp3                    # process audio file
@@ -22,12 +22,13 @@ import vad_engine
 
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo")
 DEFAULT_LANGUAGE = os.environ.get("DEFAULT_LANGUAGE", "ja")
-SILENCE_THRESHOLD_DB = float(os.environ.get("SILENCE_THRESHOLD_DB", "-40"))
 
 _is_whisper_loaded = False
+
+# 「総数」を「層数」にするなど、専門用語を正しく認識させるためのプロンプト
 INITIAL_PROMPT_MAP = dict(
-    ja="こんにちは。本日は晴天ですね。句読点を適切に使い、自然な日本語で記述してください。また、AI、Apple Silicon、GitHubなどの用語を正しく処理してください。",
-    en="Hello. This is a clear recording with proper punctuation and capitalization. It may include technical terms like AI, Apple Silicon, and software development.",
+    ja="句読点を適切に使い、自然な日本語で記述してください。また、技術的な専門用語は原則、英語表記で記載してください。",
+    en="Hello. This is a clear recording with proper punctuation and capitalization.",
 )
 
 
@@ -38,12 +39,13 @@ def preload_models():
     # VADのロードを委譲
     vad_engine.preload_vad_model()
 
-    # Whisperのロード
+    # Whisperのロード（重複していた _get_whisper_model をここに統合）
     if not _is_whisper_loaded:
         import logging
 
         log = logging.getLogger("voice_input.mlx")
-        log.info("Loading MLX Whisper model...")
+        log.info(f"Warming up MLX Whisper model ({WHISPER_MODEL})...")
+
         dummy = np.zeros(16000, dtype=np.float32)
         mlx_whisper.transcribe(
             dummy, path_or_hf_repo=WHISPER_MODEL, word_timestamps=False
@@ -53,9 +55,8 @@ def preload_models():
 
 
 def process_audio_bytes(audio_data: bytes, language: str | None = None) -> dict:
-    """サーバーから呼ばれるエントリーポイント"""
-
-    # ★VAD判定を外部モジュールに委譲
+    """サーバー(WebSocket)から呼ばれるバイナリ処理用のエントリーポイント"""
+    # VAD判定を外部モジュールに委譲
     if not vad_engine.has_speech(audio_data):
         return {
             "raw_text": "",
@@ -77,50 +78,11 @@ def process_audio_bytes(audio_data: bytes, language: str | None = None) -> dict:
         Path(tmp_path).unlink(missing_ok=True)
 
 
-def audio_rms_db(wav_data: bytes) -> float:
-    """return RMS volume of WAV binary audio in dB"""
-    import io
-    import wave
-
-    with wave.open(io.BytesIO(wav_data), "rb") as wf:
-        frames = wf.readframes(wf.getnframes())
-
-    samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32)
-    if len(samples) == 0:
-        return -float("inf")
-
-    rms = np.sqrt(np.mean(samples**2))
-    if rms < 1.0:
-        return -float("inf")
-
-    return 20.0 * np.log10(rms / 32768.0)
-
-
-def _get_whisper_model():
-    """pre-load Whisper model"""
-    global _is_whisper_loaded
-    if not _is_whisper_loaded:
-        import logging
-
-        log = logging.getLogger("voice_input.mlx")
-        log.info(f"Warming up MLX Whisper model ({WHISPER_MODEL})...")
-
-        # Generate dummy silent data of 1 sec (16kHz float32) to warmup.
-        # Weight is compiled and loaded on Metal device.
-        dummy_audio = np.zeros(16000, dtype=np.float32)
-        mlx_whisper.transcribe(
-            dummy_audio, path_or_hf_repo=WHISPER_MODEL, word_timestamps=False
-        )
-        _is_whisper_loaded = True
-        log.info("MLX Whisper warmup complete.")
-    return None
-
-
 def transcribe(
     audio_path: str, language: str | None = None, vad_filter: bool = False
 ) -> dict:
     t0 = time.time()
-    _get_whisper_model()  # 初回ロード確認
+    preload_models()  # 初回ロード確認
     load_time = time.time() - t0
 
     t0 = time.time()
@@ -135,12 +97,9 @@ def transcribe(
 
     transcribe_time = time.time() - t0
 
-    # handle MLX output
     raw_text = result.get("text", "").strip()
     detected_lang = result.get("language", language or DEFAULT_LANGUAGE)
     segments = result.get("segments", [])
-
-    # naive calculation of duration
     duration = segments[-1]["end"] if segments and "end" in segments[-1] else 0.0
 
     return {
@@ -160,9 +119,25 @@ def process_audio(
     output_format: str = "text",
     quiet: bool = False,
 ) -> dict:
-    """an entire pipeline of transcribing a audio file"""
+    """CLIやHTTPサーバから呼ばれるファイル処理用のエントリーポイント"""
     if not quiet:
         print(f"Transcribing: {audio_path}", file=sys.stderr)
+
+    # HTTP/CLIルートでもVADで足切りする処理を追加
+    with open(audio_path, "rb") as f:
+        audio_bytes = f.read()
+    if not vad_engine.has_speech(audio_bytes):
+        if not quiet:
+            print("  → VAD: No speech detected, skipping.", file=sys.stderr)
+        return {
+            "raw_text": "",
+            "language": language or DEFAULT_LANGUAGE,
+            "duration": 0.0,
+            "load_time": 0.0,
+            "transcribe_time": 0.0,
+            "speed": 0.0,
+            "segments": [],
+        }
 
     whisper_result = transcribe(audio_path, language=language)
 
@@ -186,7 +161,6 @@ class VoiceInputHandler(BaseHTTPRequestHandler):
     server_version = "voice-input/2.0"
 
     def do_GET(self):
-        """Health check / usage info."""
         if self.path == "/health":
             self._json_response({"status": "ok"})
             return
@@ -194,14 +168,11 @@ class VoiceInputHandler(BaseHTTPRequestHandler):
             {
                 "service": "voice-input",
                 "usage": "POST /transcribe with audio file",
-                "params": {
-                    "language": "Language code (optional)",
-                },
+                "params": {"language": "Language code (optional)"},
             }
         )
 
     def do_POST(self):
-        """Process uploaded audio."""
         if self.path.split("?")[0] != "/transcribe":
             self._json_response({"error": "Use POST /transcribe"}, status=404)
             return
@@ -234,11 +205,7 @@ class VoiceInputHandler(BaseHTTPRequestHandler):
             tmp_path = f.name
 
         try:
-            result = process_audio(
-                tmp_path,
-                language=language,
-                quiet=True,
-            )
+            result = process_audio(tmp_path, language=language, quiet=True)
             output = {
                 "text": result["raw_text"],
                 "language": result["language"],
@@ -293,3 +260,21 @@ def main():
 
             asyncio.run(ws_main(args.host, args.port))
             return
+
+        # HTTP Server fallback
+        parser = argparse.ArgumentParser(description="voice-input HTTP Server")
+        parser.add_argument("--host", default="0.0.0.0", help="Bind address")
+        parser.add_argument("--port", type=int, default=8990, help="Port")
+        args = parser.parse_args(sys.argv[2:])
+        serve(args.host, args.port)
+        return
+
+    # CLI fallback
+    parser = argparse.ArgumentParser(description="Transcribe audio file")
+    parser.add_argument("audio", help="Path to audio file")
+    args = parser.parse_args()
+    process_audio(args.audio)
+
+
+if __name__ == "__main__":
+    main()
