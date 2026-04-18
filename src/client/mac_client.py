@@ -40,8 +40,9 @@ import sys, threading, queue, time
 TEXTS = {
     "recording":         "\U0001f534 Recording",  # 🔴
     "transcribing":      "\U0001f916 Processing", # 🤖
-    "done":              "\u2705 Done!",
-    "error":             "\u274c Error",
+    "done":              "\u2705 Done!",          # ✅
+    "error":             "\u274c Error",          # ❌
+    "canceled":          "\U0001f5d1\ufe0f Discarded", # 🗑️
 }
 
 COLORS = {
@@ -49,6 +50,7 @@ COLORS = {
     "transcribing": (0.10, 0.10, 0.10, 0.60),
     "done":         (0.05, 0.20, 0.08, 0.60),
     "error":        (0.20, 0.05, 0.05, 0.60),
+    "canceled":     (0.12, 0.12, 0.15, 0.60),
 }
 
 try:
@@ -161,7 +163,7 @@ class _Poller(NSObject):
                 if _current_stage in ("recording", "transcribing") and not _hud_visible:
                     _show_hud("")
 
-                if _current_stage in ("done", "error"):
+                if _current_stage in ("done", "error", "canceled"):
                     _hide_at = now + 1.2
         except queue.Empty:
             pass
@@ -261,6 +263,7 @@ class VoiceInputClient:
         print(
             f"  [{HOTKEY_NAME} then Ctrl at end]  → Start/Stop Recording → Paste + Send (Ctrl+Enter)"
         )
+        print(f"  [Esc during recording]  → Cancel recording")
         print(f"  [Ctrl+C] → Quit")
         print()
 
@@ -332,8 +335,13 @@ class VoiceInputClient:
             t_trans = data.get("transcribe_time", 0)
             dur = data.get("duration", 0)
 
-            send_enter = self._send_enter
+            # 音声がなくテキストも空の場合は、キャンセルまたは無音なので Done を出さない
+            if not text and dur == 0:
+                print("  → (empty - skipped)")
+                return  # ここで処理を終える
 
+            # 通常の処理
+            send_enter = self._send_enter
             enter_label = "+Enter" if send_enter else ""
             print(
                 f"\n  Done ({t_trans:.1f}s){' ' + enter_label if enter_label else ''}"
@@ -387,6 +395,11 @@ class VoiceInputClient:
     def _on_key_press(self, key):
         if key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
             self._ctrl_pressed = True
+
+        # cancel when Esc is pressed during recording
+        if key == keyboard.Key.esc and self.recording:
+            self._cancel_recording()
+            return
 
         if key == HOTKEY:
             if getattr(self, "_hotkey_down", False):
@@ -479,6 +492,31 @@ class VoiceInputClient:
         else:
             print(" ✗ Not connected")
             self._update_overlay("error", "\u2717 Not connected")
+
+    def _cancel_recording(self):
+        """録音をキャンセルし、音声を破棄する"""
+        if not self.recording:
+            return
+
+        self.recording = False
+        self._hotkey_down = False  # ホットキーの状態もリセット
+
+        if self.stream:
+            self.stream.stop()
+            self.stream.close()
+            self.stream = None
+
+        self.audio_chunks = []  # 録音データを破棄
+
+        print("\n  \u26a0\ufe0f Canceled (Esc pressed)")
+        self._update_overlay("canceled")
+
+        # サーバー側には「ストリーム終了（音声データなし）」だけを投げてリセットさせる
+        if self.ws and self._connected:
+            asyncio.run_coroutine_threadsafe(
+                self.ws.send(json.dumps({"type": "stream_end"})),
+                self.loop,
+            )
 
     def _audio_callback(self, indata, frames, time_info, status):
         """sounddevice録音コールバック."""
