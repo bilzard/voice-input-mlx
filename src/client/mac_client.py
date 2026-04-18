@@ -259,7 +259,7 @@ class VoiceInputClient:
             f"  [{HOTKEY_NAME} once]              → Start/Stop Recording → Paste only (Default)"
         )
         print(
-            f"  [{HOTKEY_NAME} then Ctrl at end]  → Start/Stop Recording → Paste + Send"
+            f"  [{HOTKEY_NAME} then Ctrl at end]  → Start/Stop Recording → Paste + Send (Ctrl+Enter)"
         )
         print(f"  [Ctrl+C] → Quit")
         print()
@@ -372,8 +372,9 @@ class VoiceInputClient:
 
                 if send_enter:
                     time.sleep(0.05)
-                    self.keyboard_controller.press(Key.enter)
-                    self.keyboard_controller.release(Key.enter)
+                    with self.keyboard_controller.pressed(Key.ctrl):
+                        self.keyboard_controller.press(Key.enter)
+                        self.keyboard_controller.release(Key.enter)
         except FileNotFoundError:
             try:
                 import pyperclip
