@@ -113,17 +113,17 @@ Comparison of inference speed and accuracy using a ~20-second technical audio sa
 
 | Model | Audio Length | Processing Time | RTF | Transcription Output (Accuracy Test) |
 | :--- | :---: | :---: | :---: | :--- |
-| **(Target Sentence)** | - | - | - | **This is a demo of voice input MLX. By using the MLX framework, we can achieve high-speed inference directly on the Mac's GPU. As you can see, this transcription is almost instantaneous and highly accurate.** |
-| **`whisper-small`** | 20.8s | 0.9s | **0.043** | This is our demo of voice input MLX. By using the MLX framework, we can achieve high-speed inference directly on the **Max GPU**. As you can see, the transcription is almost **input instantaneous** and highly accurate. |
-| **`whisper-large-v3-turbo`**| 23.4s | 2.1s | **0.089** | **This is a demo of voice input MLX. By using the MLX framework, we can achieve high-speed inference directly on the Mac's GPU. As you can see, this transcription is almost instantaneous and highly accurate.** |
+| **(Target Sentence)** | - | - | - | This is a demo of voice input MLX. By using the MLX framework, we can achieve high-speed inference directly on the Mac's GPU. As you can see, this transcription is almost instantaneous and highly accurate. |
+| **`whisper-small`** | 20.8s | 0.9s | **0.043** | This is our demo of voice input MLX. By using the MLX framework, we can achieve high-speed inference directly on the Max GPU. As you can see, the transcription is almost input instantaneous and highly accurate. |
+| **`whisper-large-v3-turbo`**| 23.4s | 2.1s | **0.089** | This is a demo of voice input MLX. By using the MLX framework, we can achieve high-speed inference directly on the Mac's GPU. As you can see, this transcription is almost instantaneous and highly accurate. |
 
 **Japanese**
 
 | Model | Audio Length | Processing Time | RTF | Transcription Output (Accuracy Test) |
 | :--- | :---: | :---: | :---: | :--- |
 | **(Target Sentence)** | - | | | Whisper large-v3-turboは、従来のlarge-v2と比較してデコーダーの層数が大幅に削減されています。これにより、4bit量子化に頼らずとも、Apple Silicon上でリアルタイム係数0.1以下の驚異的な速度を実現可能です。 |
-| **`small-mlx`** | 22.0s | 1.7s  | **0.077** | ウィスパーラージV3ターボは、従来のラージV2と比較して、デコーダーの総数が大幅に削減されています。これにより**4ビット量しか**に頼らずとも、アップルシリコン上で**リアルタイムケース**0.1以下の**脅威的な**速度を実現可能です。 |
-| **`whisper-large-v3-turbo`** | 19.2s | 2.6s | **0.135** | **Wisper Large V3 Turbo**は、従来の**Large V2**と比較して、デコーダーの総数が大幅に削減されています。これにより、**4bit量子化**に頼らずとも、**Apple Silicon**上で**リアルタイム係数**0.1以下の**驚異的な**速度を実現可能です。 |
+| **`small-mlx`** | 22.0s | 1.7s  | **0.077** | ウィスパーラージV3ターボは、従来のラージV2と比較して、デコーダーの総数が大幅に削減されています。これにより4ビット量しかに頼らずとも、アップルシリコン上でリアルタイムケース0.1以下の脅威的な速度を実現可能です。 |
+| **`whisper-large-v3-turbo`** | 19.2s | 2.6s | **0.135** | Wisper Large V3 Turboは、従来のLarge V2と比較して、デコーダーの総数が大幅に削減されています。これにより、4bit量子化に頼らずとも、Apple Silicon上でリアルタイム係数0.1以下の驚異的な速度を実現可能です。 |
 
 > [!NOTE]
 > **RTF (Real Time Factor)**: Processing Time / Audio Length. Lower is faster.
