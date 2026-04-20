@@ -249,6 +249,8 @@ class VoiceInputClient:
         self._ctrl_pressed = False
         self._send_enter = True
         self.keyboard_controller = Controller()
+        self._is_canceled = False
+        self._waiting_for_result = False
 
     def start(self):
         """メインループを開始."""
@@ -337,7 +339,9 @@ class VoiceInputClient:
 
             # 音声がなくテキストも空の場合は、キャンセルまたは無音なので Done を出さない
             if not text and dur == 0:
-                print("  → (empty - skipped)")
+                print("  → (empty - no speech detected / VAD rejected)")
+                # ★追加: HUDの表示を「Discarded (ゴミ箱マーク)」等に変更してProcessingを消す
+                self._update_overlay("canceled", "\U0001f5d1\ufe0f No Speech")
                 return  # ここで処理を終える
 
             # 通常の処理
@@ -396,10 +400,18 @@ class VoiceInputClient:
         if key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
             self._ctrl_pressed = True
 
-        # cancel when Esc is pressed during recording
-        if key == keyboard.Key.esc and self.recording:
-            self._cancel_recording()
-            return
+        # cancel if Esc is pressed
+        if key == keyboard.Key.esc:
+            if self.recording:
+                self._is_canceled = True
+                self._cancel_recording()
+                return
+            elif self._waiting_for_result:
+                self._is_canceled = True
+                print("\n  \U0001f5d1\ufe0f Processing Canceled (Will ignore result)")
+                self._update_overlay("canceled", "\U0001f5d1\ufe0f Discarded")
+                self._waiting_for_result = False
+                return
 
         if key == HOTKEY:
             if getattr(self, "_hotkey_down", False):
@@ -457,6 +469,8 @@ class VoiceInputClient:
 
         if not self.audio_chunks:
             print(" (empty)")
+            self._is_canceled = True
+            self._update_overlay("canceled", "\U0001f5d1\ufe0f Empty")
             if self.ws and self._connected:
                 asyncio.run_coroutine_threadsafe(
                     self.ws.send(json.dumps({"type": "stream_end"})),
@@ -468,8 +482,11 @@ class VoiceInputClient:
         duration = len(audio_data) / SAMPLE_RATE
         print(f" {duration:.1f}s", end="", flush=True)
 
+        # ↓ 変更：短すぎる場合もキャンセル扱い
         if duration < 0.3:
             print(" (too short, skipped)")
+            self._is_canceled = True
+            self._update_overlay("canceled", "\U0001f5d1\ufe0f Too Short")
             if self.ws and self._connected:
                 asyncio.run_coroutine_threadsafe(
                     self.ws.send(json.dumps({"type": "stream_end"})),
@@ -489,6 +506,7 @@ class VoiceInputClient:
             asyncio.run_coroutine_threadsafe(_send_final(), self.loop)
             print(" → Sent.", end="", flush=True)
             self._update_overlay("transcribing")
+            self._waiting_for_result = True  # ★ 追加：処理待ち状態にする
         else:
             print(" ✗ Not connected")
             self._update_overlay("error", "\u2717 Not connected")
